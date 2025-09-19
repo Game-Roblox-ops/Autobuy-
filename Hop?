@@ -1,76 +1,76 @@
--- // Auto Buy + Server Hop for Arena Shop
--- Items you want:
-local wantedItems = {
+local HttpService = game:GetService("HttpService")
+local TeleportService = game:GetService("TeleportService")
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local StarterGui = game:GetService("StarterGui")
+
+-- Your webhook
+local url = "https://discord.com/api/webhooks/1381734460894085170/SQ5j5Lqh8xupYpcB7LVaZAOqPiP-BkBqL4b8H86R79g9NfDkc-LkF60bM6ZaayRw2qor"
+
+-- Desired items
+local desiredItems = {
     ["Shadow Ring"] = true,
     ["Khao Man Kai"] = true,
     ["Heaven Ring"] = true
 }
 
--- Services
-local Players = game:GetService("Players")
-local HttpService = game:GetService("HttpService")
-local TeleportService = game:GetService("TeleportService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+-- Send message to Discord
+local function notifyDiscord(foundItems)
+    if #foundItems == 0 then return end
 
-local player = Players.LocalPlayer
-local NetworkFramework = require(ReplicatedStorage.Modules.NetworkFramework)
+    local list = table.concat(foundItems, ", ")
+    local data = {
+        ["content"] = "Yo **kaito0_0**, Arena Shop has your items: **" .. list .. "**!"
+    }
 
--- // Function to check stock
-local function checkStock()
-    local stockRaw = player:GetAttribute("Areana_Stock")
-    if not stockRaw then return false end
-
-    local stock = HttpService:JSONDecode(stockRaw)
-
-    for itemName, data in pairs(stock) do
-        local price = data[2]
-        local quantity = data[3]
-
-        if wantedItems[itemName] and quantity > 0 then
-            print("✅ Found wanted item:", itemName, "Price:", price, "Stock:", quantity)
-            NetworkFramework.fireServer("buy_areana", itemName)
-            return true
-        end
-    end
-
-    return false
+    local body = HttpService:JSONEncode(data)
+    HttpService:PostAsync(url, body, Enum.HttpContentType.ApplicationJson)
 end
 
--- // Function to hop servers
-local function hop()
-    print("⏭️ No wanted item found. Hopping servers...")
-    local servers = {}
-    local gameId = game.PlaceId
+-- Show Roblox on-screen notification
+local function notifyRoblox(foundItems)
+    if #foundItems == 0 then return end
 
-    local function fetchServers(cursor)
-        local url = "https://games.roblox.com/v1/games/"..gameId.."/servers/Public?sortOrder=Asc&limit=100"
-        if cursor then
-            url = url .. "&cursor=" .. cursor
+    local text = "Arena Shop has your item(s): " .. table.concat(foundItems, ", ")
+    StarterGui:SetCore("SendNotification", {
+        Title = "Arena Shop Alert!",
+        Text = text,
+        Duration = 5
+    })
+end
+
+-- Check Arena Shop stock
+local function checkShop()
+    local stockAttr = LocalPlayer:GetAttribute("Areana_Stock")
+    if not stockAttr then return end
+
+    local success, shopStock = pcall(function()
+        return HttpService:JSONDecode(stockAttr)
+    end)
+
+    if not success or not shopStock then return end
+
+    local found = {}
+    for _, itemData in pairs(shopStock) do
+        local itemName = itemData[1]
+        if desiredItems[itemName] then
+            table.insert(found, itemName)
         end
-        local response = game:HttpGet(url)
-        return HttpService:JSONDecode(response)
     end
 
-    local data = fetchServers()
-    servers = data.data
-
-    while data.nextPageCursor do
-        data = fetchServers(data.nextPageCursor)
-        for _,v in pairs(data.data) do
-            table.insert(servers,v)
-        end
-    end
-
-    for _, server in ipairs(servers) do
-        if server.playing < server.maxPlayers then
-            TeleportService:TeleportToPlaceInstance(gameId, server.id, player)
-            task.wait(5)
-        end
+    if #found > 0 then
+        notifyDiscord(found)
+        notifyRoblox(found)
+        warn("✅ Found desired Arena Shop item(s):", table.concat(found, ", "))
+        -- Stop hopping (do nothing)
+    else
+        warn("❌ No desired items found. Hopping...")
+        TeleportService:Teleport(game.PlaceId, LocalPlayer)
     end
 end
 
--- // Main
-task.wait(5) -- wait for attributes to load
-if not checkStock() then
-    hop()
-end
+-- Initial check
+checkShop()
+
+-- Re-check whenever shop stock updates
+LocalPlayer:GetAttributeChangedSignal("Areana_Stock"):Connect(checkShop)
