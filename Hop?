@@ -1,0 +1,76 @@
+-- // Auto Buy + Server Hop for Arena Shop
+-- Items you want:
+local wantedItems = {
+    ["Shadow Ring"] = true,
+    ["Khao Man Kai"] = true,
+    ["Heaven Ring"] = true
+}
+
+-- Services
+local Players = game:GetService("Players")
+local HttpService = game:GetService("HttpService")
+local TeleportService = game:GetService("TeleportService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local player = Players.LocalPlayer
+local NetworkFramework = require(ReplicatedStorage.Modules.NetworkFramework)
+
+-- // Function to check stock
+local function checkStock()
+    local stockRaw = player:GetAttribute("Areana_Stock")
+    if not stockRaw then return false end
+
+    local stock = HttpService:JSONDecode(stockRaw)
+
+    for itemName, data in pairs(stock) do
+        local price = data[2]
+        local quantity = data[3]
+
+        if wantedItems[itemName] and quantity > 0 then
+            print("✅ Found wanted item:", itemName, "Price:", price, "Stock:", quantity)
+            NetworkFramework.fireServer("buy_areana", itemName)
+            return true
+        end
+    end
+
+    return false
+end
+
+-- // Function to hop servers
+local function hop()
+    print("⏭️ No wanted item found. Hopping servers...")
+    local servers = {}
+    local gameId = game.PlaceId
+
+    local function fetchServers(cursor)
+        local url = "https://games.roblox.com/v1/games/"..gameId.."/servers/Public?sortOrder=Asc&limit=100"
+        if cursor then
+            url = url .. "&cursor=" .. cursor
+        end
+        local response = game:HttpGet(url)
+        return HttpService:JSONDecode(response)
+    end
+
+    local data = fetchServers()
+    servers = data.data
+
+    while data.nextPageCursor do
+        data = fetchServers(data.nextPageCursor)
+        for _,v in pairs(data.data) do
+            table.insert(servers,v)
+        end
+    end
+
+    for _, server in ipairs(servers) do
+        if server.playing < server.maxPlayers then
+            TeleportService:TeleportToPlaceInstance(gameId, server.id, player)
+            task.wait(5)
+        end
+    end
+end
+
+-- // Main
+task.wait(5) -- wait for attributes to load
+if not checkStock() then
+    hop()
+end
